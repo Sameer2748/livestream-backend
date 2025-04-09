@@ -41,18 +41,17 @@ async function launchInstanceForRoom(roomId, teacherName) {
         # Update and install node/npm
         apt-get update -y
         apt-get install -y nodejs npm git
-        cd /home/ubuntu
-        
-        # Install pm2 globally
-        npm install -g pm2 
 
-        pm2 list
+        cd /home/ubuntu
+
+        touch oneeee.js
         
         # Move to home directory
         
         # Clone the backend repo
         git clone https://github.com/Sameer2748/livestream-backend.git
         
+        npm install -g pm2 
         # Go into the cloned folder
         cd livestream-backend
         touch zero.js
@@ -64,7 +63,7 @@ async function launchInstanceForRoom(roomId, teacherName) {
                 touch one.ts
 
                 pm2 start server.js --name room-server
-touch two.js
+        touch two.js
         
         # Export environment variables
 
