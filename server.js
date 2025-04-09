@@ -78,7 +78,6 @@ async function startServer() {
     process.exit(1);
   }
 }
-
 // Graceful shutdown on SIGTERM
 process.on('SIGTERM', async () => {
   console.log('SIGTERM received, shutting down gracefully');
