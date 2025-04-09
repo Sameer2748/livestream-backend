@@ -1,0 +1,26 @@
+{
+  "name": "backend-scale",
+  "version": "1.0.0",
+  "main": "server.js",
+  "scripts": {
+    "test": "echo \"Error: no test specified\" && exit 1",
+    "start": "node server.js"
+  },
+  "keywords": [],
+  "author": "",
+  "license": "ISC",
+  "description": "",
+  "dependencies": {
+    "aws-sdk": "^2.1692.0",
+    "cors": "^2.8.5",
+    "dotenv": "^16.4.7",
+    "express": "^5.1.0",
+    "http": "^0.0.1-security",
+    "ioredis": "^5.6.0",
+    "mediasoup": "^3.15.7",
+    "os": "^0.1.2",
+    "path": "^0.12.7",
+    "uuid": "^11.1.0",
+    "ws": "^8.18.1"
+  }
+}
