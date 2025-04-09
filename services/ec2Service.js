@@ -1,4 +1,3 @@
-// /backend/services/ec2Service.js
 const AWS = require('aws-sdk');
 const dotenv = require('dotenv');
 dotenv.config();
@@ -35,19 +34,41 @@ async function launchInstanceForRoom(roomId, teacherName) {
     // Create a promise that will resolve when the instance is ready
     const launchPromise = new Promise(async (resolve, reject) => {
       try {
-        // User data script to initialize the server on startup
+        // User data script to initialize the server on startup for an Ubuntu AMI
+        // It installs Node.js, npm, and pm2 if necessary, then changes directory to your livestream-backend folder and starts your server.
         const userData = `#!/bin/bash
-          cd /home/ec2-user/classroom-app
-          export ROOM_ID="${roomId}"
-          export REDIS_HOST="${process.env.REDIS_HOST}"
-          export REDIS_PORT="${process.env.REDIS_PORT}"
-          export REDIS_PASSWORD="${process.env.REDIS_PASSWORD}"
-          pm2 start npm -- start
+        # Update and install node/npm
+        apt-get update -y
+        apt-get install -y nodejs npm git
+        
+        # Install pm2 globally
+        npm install -g pm2
+        
+        # Move to home directory
+        cd /home/ubuntu
+        
+        # Clone the backend repo
+        git clone https://github.com/Sameer2748/livestream-backend.git
+        
+        # Go into the cloned folder
+        cd livestream-backend
+        
+        # Install dependencies
+        npm install
+        
+        # Export environment variables
+        export ROOM_ID="${roomId}"
+        export REDIS_HOST="${process.env.REDIS_HOST}"
+        export REDIS_PORT="${process.env.REDIS_PORT}"
+        
+        # Start the server using PM2
+        pm2 start server.js --name room-server
         `;
+        
 
         // Launch a new instance using your AMI with the app pre-installed
         const params = {
-          ImageId: process.env.EC2_AMI_ID, // Your pre-configured AMI
+          ImageId: "ami-04ba5e625d67e5343", // Your pre-configured AMI (should be an Ubuntu image)
           InstanceType: 't3.medium',  // Adjust based on your needs
           MinCount: 1,
           MaxCount: 1,
@@ -65,6 +86,7 @@ async function launchInstanceForRoom(roomId, teacherName) {
         };
 
         const result = await ec2.runInstances(params).promise();
+        
         const instanceId = result.Instances[0].InstanceId;
         
         // Store the instance ID in Redis
@@ -80,6 +102,8 @@ async function launchInstanceForRoom(roomId, teacherName) {
         const describeResult = await ec2.describeInstances({
           InstanceIds: [instanceId]
         }).promise();
+
+        console.log(describeResult)
         
         const publicIp = describeResult.Reservations[0].Instances[0].PublicIpAddress;
         

@@ -3,7 +3,7 @@ const os = require('os');
 const mediasoup = require('mediasoup');
 
 const workers = [];
-const numWorkers = Math.min(os.cpus().length);
+const numWorkers = Math.min(os.cpus().length,4);
 const mediaCodecs = [
   {
     kind: 'audio',
