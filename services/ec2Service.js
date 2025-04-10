@@ -1,21 +1,21 @@
-const AWS = require('aws-sdk');
-const dotenv = require('dotenv');
+const AWS = require("aws-sdk");
+const dotenv = require("dotenv");
 dotenv.config();
 
 // Configure AWS SDK
 AWS.config.update({
   accessKeyId: process.env.AWS_ACCESS_KEY,
   secretAccessKey: process.env.AWS_SECRET_KEY,
-  region: process.env.AWS_REGION || 'ap-south-1'
+  region: process.env.AWS_REGION || "ap-south-1",
 });
 
 const ec2 = new AWS.EC2();
-const { redisClient } = require('./redisService');
+const { redisClient } = require("./redisService");
 
 // Cache for tracking EC2 launch operations
 const pendingLaunches = new Map();
 
-// Launch a new EC2 instance for a room
+// Launch a new EC2 instance for a room using your custom AMI
 async function launchInstanceForRoom(roomId, teacherName) {
   try {
     // Check if we already have an instance for this room
@@ -34,104 +34,80 @@ async function launchInstanceForRoom(roomId, teacherName) {
     // Create a promise that will resolve when the instance is ready
     const launchPromise = new Promise(async (resolve, reject) => {
       try {
-        // User data script to initialize the server on startup for an Ubuntu AMI
-        // It installs Node.js, npm, and pm2 if necessary, then changes directory to your livestream-backend folder and starts your server.
+        // In this case, your custom AMI is pre-configured.
+        // So you only need to trigger a restart of your backend.
+        // For example, kill any process on port 3000 and then restart PM2.
 
         const userData = `#!/bin/bash
-        # Update and install node/npm
-        apt-get update -y
-        apt-get install -y nodejs npm git
+# Kill any existing process on port 3000 to avoid conflicts
+sudo fuser -k 3000/tcp || true
 
-        cd /home/ubuntu
+# Change directory to the app folder (it should already be there in your custom AMI)
+cd /home/ubuntu/livestream-backend
 
-        touch oneeee.js
-        
-        # Move to home directory
-        
-        # Clone the backend repo
-        git clone https://github.com/Sameer2748/livestream-backend.git
-        
-        npm install -g pm2 
-        # Go into the cloned folder
-        cd livestream-backend
-        touch zero.js
+# Restart your app with PM2 (assumes PM2 and your app are already set up)
+pm2 delete room-server || true
+pm2 start server.js --name room-server
+pm2 save
+`;
 
-        # Install dependencies
-        rm -rf node_modules
-        rm package-lock.json
-        npm install
-                touch one.ts
-
-                pm2 start server.js --name room-server
-        touch two.js
-        
-        # Export environment variables
-
-        export AWS_ACCESS_KEY="${process.env.AWS_ACCESS_KEY}"
-        export AWS_SECRET_KEY=""${process.env.AWS_SECRET_KEY}""
-        export AWS_REGION="ap-south-1"
-        export  EC2_AMI_ID="${process.env.EC2_AMI_ID}"
-        export EC2_SECURITY_GROUP="${process.env.EC2_SECURITY_GROUP}"
-
-        export ROOM_ID="${roomId}"
-        export REDIS_HOST="${process.env.REDIS_HOST}"
-        export REDIS_PORT="${process.env.REDIS_PORT}"
-        
-        # Start the server using PM2
-
-        touch four.ts
-
-        `;
-        
-
-        // Launch a new instance using your AMI with the app pre-installed
         const params = {
-          ImageId: `${process.env.EC2_AMI_ID}`, // Your pre-configured AMI (should be an Ubuntu image)
-          InstanceType: 't3.medium',  // Adjust based on your needs
+          // Use your custom AMI ID (this should be the AMI that you manually configured)
+          ImageId: process.env.EC2_AMI_ID, // e.g., your custom AMI ID
+          InstanceType: "t3.medium", // Adjust based on your needs
           MinCount: 1,
           MaxCount: 1,
-          UserData: Buffer.from(userData).toString('base64'),
-          SecurityGroupIds: [process.env.EC2_SECURITY_GROUP],
+          UserData: Buffer.from(userData).toString("base64"),
+          // It is best to ensure that the instance receives a public IP.
+          // If your subnet auto-assigns a public IP, you can specify SecurityGroupIds here.
+          // Otherwise, use NetworkInterfaces with AssociatePublicIpAddress set to true.
+          ...(process.env.EC2_SUBNET_ID
+            ? {
+                NetworkInterfaces: [{
+                  DeviceIndex: 0,
+                  AssociatePublicIpAddress: true,
+                  SubnetId: process.env.EC2_SUBNET_ID,
+                  Groups: [process.env.EC2_SECURITY_GROUP]
+                }]
+              }
+            : {
+                SecurityGroupIds: [process.env.EC2_SECURITY_GROUP]
+              }),
           TagSpecifications: [
             {
-              ResourceType: 'instance',
+              ResourceType: "instance",
               Tags: [
-                { Key: 'Name', Value: `classroom-${roomId}` },
-                { Key: 'RoomId', Value: roomId }
-              ]
-            }
-          ]
+                { Key: "Name", Value: `classroom-${roomId}` },
+                { Key: "RoomId", Value: roomId },
+              ],
+            },
+          ],
         };
 
         const result = await ec2.runInstances(params).promise();
-        
         const instanceId = result.Instances[0].InstanceId;
         
         // Store the instance ID in Redis
-        await redisClient.hset(`room:${roomId}`, 'ec2InstanceId', instanceId);
+        await redisClient.hset(`room:${roomId}`, "ec2InstanceId", instanceId);
         
         // Wait for the instance to be running and have a public IP
         console.log(`Waiting for instance ${instanceId} to be running...`);
-        await ec2.waitFor('instanceRunning', {
-          InstanceIds: [instanceId]
+        await ec2.waitFor("instanceRunning", {
+          InstanceIds: [instanceId],
         }).promise();
         
         // Get the instance details including public IP
         const describeResult = await ec2.describeInstances({
-          InstanceIds: [instanceId]
+          InstanceIds: [instanceId],
         }).promise();
-
-        console.log(describeResult)
-        
         const publicIp = describeResult.Reservations[0].Instances[0].PublicIpAddress;
         
         // Store the public IP in Redis
-        await redisClient.hset(`room:${roomId}`, 'instanceIp', publicIp);
+        await redisClient.hset(`room:${roomId}`, "instanceIp", publicIp);
         console.log(`Instance ${instanceId} launched with IP ${publicIp} for room ${roomId}`);
         
-        // Wait a bit for the application to start
-        await new Promise(r => setTimeout(r, 30000));
-        
+        // Wait a bit for your application to start (adjust as needed)
+        await new Promise((r) => setTimeout(r, 30000));
         resolve({ instanceId, publicIp });
       } catch (err) {
         console.error(`Error launching instance for room ${roomId}:`, err);
@@ -153,8 +129,8 @@ async function launchInstanceForRoom(roomId, teacherName) {
 // Get the instance information for a room
 async function getInstanceForRoom(roomId) {
   try {
-    const instanceId = await redisClient.hget(`room:${roomId}`, 'ec2InstanceId');
-    const instanceIp = await redisClient.hget(`room:${roomId}`, 'instanceIp');
+    const instanceId = await redisClient.hget(`room:${roomId}`, "ec2InstanceId");
+    const instanceIp = await redisClient.hget(`room:${roomId}`, "instanceIp");
     
     if (!instanceId || !instanceIp) {
       return null;
@@ -163,13 +139,15 @@ async function getInstanceForRoom(roomId) {
     // Check if the instance is still running
     const result = await ec2.describeInstanceStatus({
       InstanceIds: [instanceId],
-      IncludeAllInstances: true
+      IncludeAllInstances: true,
     }).promise();
     
-    if (result.InstanceStatuses.length === 0 || 
-        result.InstanceStatuses[0].InstanceState.Name !== 'running') {
+    if (
+      result.InstanceStatuses.length === 0 || 
+      result.InstanceStatuses[0].InstanceState.Name !== "running"
+    ) {
       // Instance is not running, clean up Redis
-      await redisClient.hdel(`room:${roomId}`, 'ec2InstanceId', 'instanceIp');
+      await redisClient.hdel(`room:${roomId}`, "ec2InstanceId", "instanceIp");
       return null;
     }
     
@@ -189,11 +167,11 @@ async function terminateInstanceForRoom(roomId) {
     }
     
     await ec2.terminateInstances({
-      InstanceIds: [instanceInfo.instanceId]
+      InstanceIds: [instanceInfo.instanceId],
     }).promise();
     
     // Remove instance info from Redis
-    await redisClient.hdel(`room:${roomId}`, 'ec2InstanceId', 'instanceIp');
+    await redisClient.hdel(`room:${roomId}`, "ec2InstanceId", "instanceIp");
     console.log(`Terminated instance ${instanceInfo.instanceId} for room ${roomId}`);
     return true;
   } catch (error) {
@@ -206,11 +184,11 @@ async function terminateInstanceForRoom(roomId) {
 async function cleanupEmptyRoomInstances() {
   try {
     // Get all rooms
-    const roomKeys = await redisClient.keys('room:*');
+    const roomKeys = await redisClient.keys("room:*");
     for (const key of roomKeys) {
-      if (key.includes(':users') || key.includes(':messages')) continue;
+      if (key.includes(":users") || key.includes(":messages")) continue;
       
-      const roomId = key.split(':')[1];
+      const roomId = key.split(":")[1];
       
       // Check if room has users
       const usersKey = `room:${roomId}:users`;
@@ -222,7 +200,7 @@ async function cleanupEmptyRoomInstances() {
       }
     }
   } catch (error) {
-    console.error('Error during cleanup of empty room instances:', error);
+    console.error("Error during cleanup of empty room instances:", error);
   }
 }
 
@@ -230,5 +208,5 @@ module.exports = {
   launchInstanceForRoom,
   getInstanceForRoom,
   terminateInstanceForRoom,
-  cleanupEmptyRoomInstances
+  cleanupEmptyRoomInstances,
 };

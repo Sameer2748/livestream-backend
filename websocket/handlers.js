@@ -1,4 +1,8 @@
 // /backend/websocket/handlers.js
+const { redisClient } = require('../services/redisService');
+
+
+// /backend/websocket/handlers.js
 const {
     addUserToRoom,
     getRoomUsers,
@@ -61,16 +65,46 @@ const {
   /**
    * Handles a "getRouterRtpCapabilities" message.
    */
-  async function handleGetRouterRtpCapabilities(data, ws, context) {
-    const { roomId } = data;
-    // console.log("roomid", data)
-    // console.log(roomId, context.mediasoupRooms.length ,  context.mediasoupRooms.has(roomId))
-    if (context.mediasoupRooms && context.mediasoupRooms.has(roomId)) {
-      const mediasoupRoom = context.mediasoupRooms.get(roomId);
-      console.log(mediasoupRoom);
+  // async function handleGetRouterRtpCapabilities(data, ws, context) {
+  //   const { roomId } = data;
+  //   // console.log("roomid", data)
+  //   // console.log(roomId, context.mediasoupRooms.length ,  context.mediasoupRooms.has(roomId))
+  //   if (context.mediasoupRooms && context.mediasoupRooms.has(roomId)) {
+  //     const mediasoupRoom = context.mediasoupRooms.get(roomId);
+  //     console.log(mediasoupRoom);
+  //     ws.send(JSON.stringify({
+  //       type: 'routerRtpCapabilities',
+  //       data: mediasoupRoom.router.rtpCapabilities
+  //     }));
+  //   } else {
+  //     ws.send(JSON.stringify({
+  //       type: 'error',
+  //       message: 'Room not properly initialized for media'
+  //     }));
+  //   }
+  // }
+  
+
+ 
+async function handleGetRouterRtpCapabilities(data, ws, context) {
+  const { roomId } = data;
+  // Check if the mediasoup room exists in memory
+  if (context.mediasoupRooms && context.mediasoupRooms.has(roomId)) {
+    const mediasoupRoom = context.mediasoupRooms.get(roomId);
+    console.log("Router RTP Capabilities (memory):", mediasoupRoom.router.rtpCapabilities);
+    ws.send(JSON.stringify({
+      type: 'routerRtpCapabilities',
+      data: mediasoupRoom.router.rtpCapabilities
+    }));
+  } else {
+    // If not in memory, attempt to retrieve stored RTP capabilities from Redis
+    const capabilitiesStr = await redisClient.hget(`room:${roomId}`, 'routerRtpCapabilities');
+    if (capabilitiesStr) {
+      const capabilities = JSON.parse(capabilitiesStr);
+      console.log("Router RTP Capabilities (Redis):", capabilities);
       ws.send(JSON.stringify({
         type: 'routerRtpCapabilities',
-        data: mediasoupRoom.router.rtpCapabilities
+        data: capabilities
       }));
     } else {
       ws.send(JSON.stringify({
@@ -79,7 +113,7 @@ const {
       }));
     }
   }
-  
+}
   /**
    * Handles "createProducerTransport" for a teacher.
    */
