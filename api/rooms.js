@@ -1,7 +1,6 @@
 const express = require('express');
 const router = express.Router();
-
-const { createRoomInRedis, redisClient } = require('../services/redisService');
+const { createRoomInRedis } = require('../services/redisService');
 const { launchInstanceForRoom, getInstanceForRoom } = require('../services/ec2Service');
 
 // POST /api/create-room
@@ -66,17 +65,17 @@ router.get('/join-room/:roomId', async (req, res) => {
   const { roomId } = req.params;
   try {
     // Check if room exists in Redis
-    const roomExists = await redisClient.exists(`room:${roomId}`);
+    const roomExists = await req.app.locals.redisClient.exists(`room:${roomId}`);
     if (!roomExists) {
       return res.status(404).json({ error: 'Room not found' });
     }
 
     // Get the EC2 instance IP for this room
-    const instanceIp = await redisClient.hget(`room:${roomId}`, 'instanceIp');
+    const instanceIp = await req.app.locals.redisClient.hget(`room:${roomId}`, 'instanceIp');
     if (!instanceIp) {
       return res.status(404).json({ error: 'Room server not found' });
     }
-    return res.json({ roomId, instanceIp: `ws://${instanceIp}:3000`, });
+    return res.json({ roomId, instanceIp: `ws://${instanceIp}:3000` });
   } catch (error) {
     console.error('Error joining room:', error);
     return res.status(500).json({ error: 'Internal server error' });

@@ -1,4 +1,3 @@
-// /backend/websocket/index.js
 const WebSocket = require('ws');
 const {
   handleJoin,
@@ -13,7 +12,7 @@ const {
   handleConsume,
   handleResumeConsumer
 } = require('./handlers');
-const { broadcastToRoom } = require('./utils'); // Assume you have a small utils file for broadcasting
+const { broadcastToRoom } = require('./utils'); // Assumes you have a utils file for broadcasting
 
 function setupWebSocketServer(server, context) {
   const wss = new WebSocket.Server({ server });
@@ -57,7 +56,6 @@ function setupWebSocketServer(server, context) {
             break;
           }
           case 'getRouterRtpCapabilities': {
-
             await handleGetRouterRtpCapabilities(data, ws, context);
             break;
           }

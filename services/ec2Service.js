@@ -48,7 +48,7 @@ cd /home/ubuntu/livestream-backend
 # Restart your app with PM2 (assumes PM2 and your app are already set up)
 pm2 delete room-server || true
 pm2 start server.js --name room-server
-pm2 save
+
 `;
 
         const params = {
