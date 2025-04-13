@@ -100,7 +100,10 @@ async function handleCreateProducerTransport(data, ws, context) {
   console.log("Producer transport request:", data, roomId, context.mediasoupRooms && context.mediasoupRooms.has(roomId));
   if (roomId && context.mediasoupRooms && context.mediasoupRooms.has(roomId) && isTeacher) {
     const mediasoupRoom = context.mediasoupRooms.get(roomId);
-    const { transport, params } = await createWebRtcTransport(mediasoupRoom.router);
+    const announcedIp = await redisClient.hget(`room:${roomId}`, 'instanceIp');
+    console.log(`Using announced IP for room ${roomId}:`, announcedIp);
+    
+    const { transport, params } = await createWebRtcTransport(mediasoupRoom.router, announcedIp);
     context.producerTransport = transport;
     transport.on('dtlsstatechange', (dtlsState) => {
       if (dtlsState === 'closed') transport.close();
@@ -130,21 +133,38 @@ async function handleConnectProducerTransport(data, ws, context) {
 /**
  * Handles "produce".
  */
+/**
+ * Handles "produce".
+ */
 async function handleProduce(data, ws, context) {
-  console.log("Produce request:", data , context.producerTransport);
+  console.log("Produce request:", data, context.producerTransport);
   if (context.producerTransport && data.isTeacher) {
     const { roomId, userId, kind, rtpParameters } = data;
     const mediasoupRoom = context.mediasoupRooms.get(roomId);
+    
+    // Deduplicate: if a producer of the same kind (e.g. 'video') exists, close it.
+    for (const [pid, existingProducer] of mediasoupRoom.producers) {
+      if (existingProducer.kind === kind) {
+        console.log(`Producer of kind ${kind} already exists with ID: ${pid}. Closing it.`);
+        existingProducer.close();
+        mediasoupRoom.producers.delete(pid);
+      }
+    }
+    
+    // Create a new producer
     const producer = await context.producerTransport.produce({ kind, rtpParameters });
     mediasoupRoom.producers.set(producer.id, producer);
+    
     producer.on('transportclose', () => {
       producer.close();
       mediasoupRoom.producers.delete(producer.id);
     });
+    
     ws.send(JSON.stringify({
       type: 'produced',
       data: { id: producer.id, kind }
     }));
+    
     // Broadcast a newProducer message (excluding the teacher who produced)
     const teacherData = context.localRooms.get(roomId).get(userId);
     return {
@@ -201,15 +221,27 @@ async function handleCreateConsumerTransport(data, ws, context, connectionContex
   const { roomId } = data;
   if (roomId && context.mediasoupRooms && context.mediasoupRooms.has(roomId)) {
     const mediasoupRoom = context.mediasoupRooms.get(roomId);
-    const { transport, params } = await createWebRtcTransport(mediasoupRoom.router);
+    const announcedIp = await redisClient.hget(`room:${roomId}`, 'instanceIp');
+    console.log(`Using announced IP for room ${roomId}:`, announcedIp);
+    
+    const { transport, params } = await createWebRtcTransport(mediasoupRoom.router, announcedIp);
     const transportId = data.transportId;
     connectionContext.consumerTransports.set(transportId, transport);
-    transport.on('dtlsstatechange', (dtlsState) => {
-      if (dtlsState === 'closed') {
+    
+    // Add extended logging for connection state changes
+    transport.on('connectionstatechange', (state) => {
+      console.log(`Consumer transport ${transportId} connection state changed to: ${state}`);
+      if (state === 'failed' || state === 'closed') {
+        console.log(`Consumer transport ${transportId} has failed. Closing transport.`);
         transport.close();
         connectionContext.consumerTransports.delete(transportId);
       }
     });
+
+    transport.on('dtlsstatechange', (dtlsState) => {
+      console.log(`Consumer transport ${transportId} DTLS state change: ${dtlsState}`);
+    });
+    
     ws.send(JSON.stringify({
       type: 'consumerTransportCreated',
       data: { transportId, params },
@@ -277,13 +309,14 @@ async function handleConsume(data, ws, context, connectionContext) {
       paused: true
     });
     console.log("Consumer created with ID:", consumer.id);
-
-    mediasoupRoom.consumers.set(consumer.id, consumer);
+    
+    // Add consumer event listeners
     consumer.on('transportclose', () => {
-      consumer.close();
+      console.log("Consumer transport closed for consumer:", consumer.id);
       mediasoupRoom.consumers.delete(consumer.id);
     });
     consumer.on('producerclose', () => {
+      console.log("Producer closed; closing consumer:", consumer.id);
       consumer.close();
       mediasoupRoom.consumers.delete(consumer.id);
       ws.send(JSON.stringify({
@@ -292,6 +325,8 @@ async function handleConsume(data, ws, context, connectionContext) {
         kind: consumer.kind
       }));
     });
+    
+    mediasoupRoom.consumers.set(consumer.id, consumer);
     ws.send(JSON.stringify({
       type: 'consumed',
       data: {
@@ -303,9 +338,11 @@ async function handleConsume(data, ws, context, connectionContext) {
       }
     }));
   } catch (error) {
+    console.error("Error creating consumer:", error);
     ws.send(JSON.stringify({ type: 'error', message: 'Error creating consumer' }));
   }
 }
+
 
 /**
  * Handles "resumeConsumer".

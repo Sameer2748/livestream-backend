@@ -35,7 +35,7 @@ const mediasoupRooms = new Map();
 async function initializeMediasoupWorkers() {
   for (let i = 0; i < numWorkers; i++) {
     const worker = await mediasoup.createWorker({
-      logLevel: 'warn',
+      logLevel: 'debug',
       logTags: ['info', 'ice', 'dtls', 'rtp', 'srtp', 'rtcp']
     });
     worker.on('died', () => {
@@ -78,26 +78,34 @@ async function createMediasoupRouter(roomId) {
 
 async function createWebRtcTransport(router, announcedIp) {
   const transport = await router.createWebRtcTransport({
-    listenIps: [{
-      ip: '0.0.0.0',
-      announcedIp: announcedIp || '127.0.0.1'
-    }],
+    listenIps: [{ ip: '0.0.0.0', announcedIp }],
     enableUdp: true,
     enableTcp: true,
     preferUdp: true,
     initialAvailableOutgoingBitrate: 1000000
   });
+
   console.log('Created WebRTC transport with ID:', transport.id);
+
   return {
     transport,
     params: {
       id: transport.id,
       iceParameters: transport.iceParameters,
       iceCandidates: transport.iceCandidates,
-      dtlsParameters: transport.dtlsParameters
+      dtlsParameters: transport.dtlsParameters,
+      iceServers: [
+        {
+          urls: "turn:13.233.16.27:3478",
+          username: "demo", // Can be anything
+          credential: hmac("demo", `${timestamp}:${username}`), // match static-auth-secret
+        }
+      ]
+      
     }
   };
 }
+
 
 module.exports = {
   initializeMediasoupWorkers,
