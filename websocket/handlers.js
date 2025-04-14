@@ -133,38 +133,21 @@ async function handleConnectProducerTransport(data, ws, context) {
 /**
  * Handles "produce".
  */
-/**
- * Handles "produce".
- */
 async function handleProduce(data, ws, context) {
-  console.log("Produce request:", data, context.producerTransport);
+  console.log("Produce request:", data , context.producerTransport);
   if (context.producerTransport && data.isTeacher) {
     const { roomId, userId, kind, rtpParameters } = data;
     const mediasoupRoom = context.mediasoupRooms.get(roomId);
-    
-    // Deduplicate: if a producer of the same kind (e.g. 'video') exists, close it.
-    for (const [pid, existingProducer] of mediasoupRoom.producers) {
-      if (existingProducer.kind === kind) {
-        console.log(`Producer of kind ${kind} already exists with ID: ${pid}. Closing it.`);
-        existingProducer.close();
-        mediasoupRoom.producers.delete(pid);
-      }
-    }
-    
-    // Create a new producer
     const producer = await context.producerTransport.produce({ kind, rtpParameters });
     mediasoupRoom.producers.set(producer.id, producer);
-    
     producer.on('transportclose', () => {
       producer.close();
       mediasoupRoom.producers.delete(producer.id);
     });
-    
     ws.send(JSON.stringify({
       type: 'produced',
       data: { id: producer.id, kind }
     }));
-    
     // Broadcast a newProducer message (excluding the teacher who produced)
     const teacherData = context.localRooms.get(roomId).get(userId);
     return {

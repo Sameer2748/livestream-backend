@@ -64,7 +64,7 @@ async function startServer() {
     await initializeMediasoupWorkers();
     // Update activeWorkers (if you want to use it in health-check)
     app.locals.activeWorkers = require('./services/mediasoupService').workersCount || 0;
-    // setInterval(cleanupEmptyRoomInstances, 2 * 60 * 1000); // Check every 5 minutes
+   setInterval(cleanupEmptyRoomInstances, 2 * 60 * 1000); // Check every 5 minutes
 
     const PORT = process.env.PORT || 3000;
     server.listen(PORT, () => {
