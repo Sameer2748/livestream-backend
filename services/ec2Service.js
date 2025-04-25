@@ -58,9 +58,6 @@ pm2 start server.js --name room-server
           MinCount: 1,
           MaxCount: 1,
           UserData: Buffer.from(userData).toString("base64"),
-          // It is best to ensure that the instance receives a public IP.
-          // If your subnet auto-assigns a public IP, you can specify SecurityGroupIds here.
-          // Otherwise, use NetworkInterfaces with AssociatePublicIpAddress set to true.
           ...(process.env.EC2_SUBNET_ID
             ? {
                 NetworkInterfaces: [{
@@ -132,7 +129,9 @@ async function getInstanceForRoom(roomId) {
     const instanceId = await redisClient.hget(`room:${roomId}`, "ec2InstanceId");
     const instanceIp = await redisClient.hget(`room:${roomId}`, "instanceIp");
     
+    // If either instanceId or instanceIp is missing, return null
     if (!instanceId || !instanceIp) {
+      console.log(`Room ${roomId} has missing instance information`);
       return null;
     }
     
@@ -147,6 +146,7 @@ async function getInstanceForRoom(roomId) {
       result.InstanceStatuses[0].InstanceState.Name !== "running"
     ) {
       // Instance is not running, clean up Redis
+      console.log(`Instance ${instanceId} for room ${roomId} is not running`);
       await redisClient.hdel(`room:${roomId}`, "ec2InstanceId", "instanceIp");
       return null;
     }
@@ -185,6 +185,7 @@ async function cleanupEmptyRoomInstances() {
   try {
     // Get all rooms
     const roomKeys = await redisClient.keys("room:*");
+
     for (const key of roomKeys) {
       if (key.includes(":users") || key.includes(":messages")) continue;
       
@@ -194,8 +195,13 @@ async function cleanupEmptyRoomInstances() {
       const usersKey = `room:${roomId}:users`;
       const userCount = await redisClient.hlen(usersKey);
       
-      if (userCount === 0) {
-        console.log(`Room ${roomId} is empty, terminating instance...`);
+      // Only terminate if room has been empty for more than 5 minutes
+      const roomData = await redisClient.hgetall(`room:${roomId}`);
+      const createdAt = parseInt(roomData.createdAt);
+      const now = Date.now();
+      
+      if (userCount === 0 && (now - createdAt) > 300000) { // 5 minutes in milliseconds
+        console.log(`Room ${roomId} has been empty for more than 5 minutes, terminating instance...`);
         await terminateInstanceForRoom(roomId);
       }
     }

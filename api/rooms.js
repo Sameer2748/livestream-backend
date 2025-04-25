@@ -10,13 +10,31 @@ router.post('/create-room', async (req, res) => {
     return res.status(400).json({ error: 'Invalid room ID' });
   }
 
-  // Assume instanceId is injected into app.locals in server.js
-  const instanceId = req.app.locals.instanceId;
-
   try {
-    // First create the room in Redis
-    const created = await createRoomInRedis(roomId, teacherName, instanceId);
-    if (!created) return res.status(409).json({ error: 'Room already exists' });
+    // First check if room already exists
+    const existingInstance = await getInstanceForRoom(roomId);
+    if (existingInstance && existingInstance.publicIp) {
+      console.log(`Room ${roomId} already exists with valid instance, returning existing instance URL`);
+      return res.status(200).json({
+        roomId,
+        instanceUrl: `ws://${existingInstance.publicIp}:3000`,
+        instanceId: existingInstance.instanceId
+      });
+    }
+
+    // If room exists but has no valid instance, delete it and create new
+    if (existingInstance) {
+      console.log(`Room ${roomId} exists but has no valid instance, deleting and recreating...`);
+      await req.app.locals.redisClient.del(`room:${roomId}`);
+      await req.app.locals.redisClient.del(`room:${roomId}:users`);
+      await req.app.locals.redisClient.del(`room:${roomId}:messages`);
+    }
+
+    // Create new room
+    const created = await createRoomInRedis(roomId, teacherName);
+    if (!created) {
+      return res.status(409).json({ error: 'Room already exists' });
+    }
 
     console.log(`Room ${roomId} created by teacher ${teacherName}`);
 
@@ -25,8 +43,8 @@ router.post('/create-room', async (req, res) => {
 
     res.status(201).json({
       roomId,
-      instanceUrl: `ws://${instanceInfo.publicIp}:3000` // URL for students to connect
-      // Optionally, you can return instanceId: instanceInfo.instanceId if needed
+      instanceUrl: `ws://${instanceInfo.publicIp}:3000`,
+      instanceId: instanceInfo.instanceId
     });
   } catch (error) {
     console.error('Error creating room:', error);

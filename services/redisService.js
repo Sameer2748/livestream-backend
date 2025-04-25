@@ -11,14 +11,12 @@ const redisClient = new Redis({
   retryStrategy: (times) => Math.min(times * 50, 2000)
 });
 
-async function createRoomInRedis(roomId, teacherName, instanceId, instanceIp) {
+async function createRoomInRedis(roomId, teacherName) {
   const roomExists = await redisClient.exists(`room:${roomId}`);
   if (roomExists) return false;
   await redisClient.hmset(`room:${roomId}`, {
     teacherName,
-    createdAt: Date.now(),
-    instanceId,   // stored for this room
-    instanceIp    // stored for routing student requests to the correct EC2 instance
+    createdAt: Date.now()
   });
   await redisClient.expire(`room:${roomId}`, 86400); // 24-hour expiry
   return true;
